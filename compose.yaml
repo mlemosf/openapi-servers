@@ -17,5 +17,15 @@ services:
     ports:
       - 8083:8000
 
+  s3:
+    build:
+      context: ./servers/s3
+    environment:
+      - AWS_ENDPOINT_URL:
+      - AWS_ACCESS_KEY_ID:
+      - AWS_SECRET_ACCESS_KEY:
+    ports:
+      - 8084:8000
+
 volumes:
   memory:
