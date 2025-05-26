@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -7,7 +8,7 @@ import boto3
 import io
 import logging
 
-#-----------------
+# -----------------
 # Environment variables
 
 AWS_ACCESS_KEY_ID = getenv("AWS_ACCESS_KEY_ID")
@@ -15,9 +16,9 @@ AWS_SECRET_ACCESS_KEY = getenv("AWS_SECRET_ACCESS_KEY")
 AWS_ENDPOINT_URL = getenv("AWS_ENDPOINT_URL")
 
 app = FastAPI(
-    title="Utility for analyzing S3 files and generating summaries",
+    title="Utility for analyzing S3 buckets and objects and generating summaries",
     version="1.0.0",
-    description="Accesses an S3 instance and analyzes a file."
+    description="Accesses an S3 instance buckets and objects"
 )
 
 origins = ["*"]
@@ -34,7 +35,7 @@ app.add_middleware(
 # Pydantic models
 # -------------------------------
 
-#class S3Connection(BaseModel):
+# class S3Connection(BaseModel):
 #    access_key_id: str
 #    secret_access_key: str
 #    url : str
@@ -43,6 +44,10 @@ app.add_middleware(
 class S3ObjectInput(BaseModel):
     bucket_name: str = Field(..., description="The name of the S3 bucket.")
     object_key: str = Field(..., description="The key (name) of the S3 object.")
+
+class S3BucketInput(BaseModel):
+    bucket_name: str = Field(..., description="The name of the S3 bucket.")
+    object_prefix: Optional[str] = Field(..., description="The prefix (directory) of the S3 objects.")
 
 # -------------------------------
 # Routes
@@ -137,6 +142,53 @@ def get_s3_object_stats(data: S3ObjectInput):
         }
 
 
+@app.post(
+    "/get_s3_bucket_stats",
+    summary="Get statistics about a S3 bucket."
+)
+def get_s3_object_stats(data: S3BucketInput):
+    """
+    Get statistics about a S3 bucket, including object count and the first objects in that bucket.
+    """
+    s3_client = boto3.client(
+        "s3",
+        endpoint_url=AWS_ENDPOINT_URL,
+        aws_access_key_id=AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+        aws_session_token=None,
+        config=boto3.session.Config(signature_version='s3v4'),
+        region_name='us-east-1',
+        verify=True
+    ) 
+
+    try:
+        # Get the object from S3
+        if data.object_prefix:
+            response = s3_client.list_objects_v2(Bucket=data.bucket_name, Prefix=data.object_prefix)
+        else:
+            response = s3_client.list_objects_v2(Bucket=data.bucket_name)
+
+        # Get statistics about the data
+        if len(response.get("Contents",[])) > 0:
+            objects = [
+                {"Key": obj["Key"], "Size": obj["Size"]}
+                for obj in response["Contents"]
+            ]
+        else:
+            objects = []
+        return {
+            "status": 200,
+            "bucket_name": response['Name'],
+            "num_objects": response["KeyCount"],
+            "objects": objects
+        }
+    except Exception as e:
+        return {
+            "status": 400,
+            "message": f"The file could not be processed with error: {e}"
+        }
+
+
 # ------------------------------------------------
 # Utilitary functions
 # ------------------------------------------------
@@ -186,4 +238,3 @@ def get_object_statistics(data : pd.DataFrame):
         ]
     }
     return stats
-
